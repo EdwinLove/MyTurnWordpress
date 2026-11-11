@@ -29,6 +29,9 @@ wp-config.php
 # Uploads
 /wp-content/uploads/
 
+# Vendor directory
+/vendor/
+
 # Log files
 *.log
 
