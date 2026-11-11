@@ -1,0 +1,20 @@
+{
+    "name": "kloth/wordpress-myturn",
+    "description": "WordPress adapter for the framework-independent KLOTH MyTurn core",
+    "type": "wordpress-plugin",
+    "require": {
+        "php": ">=8.4",
+        "kloth/myturn-core": "^1.0"
+    },
+    "repositories": [
+        {
+            "type": "vcs",
+            "url": "https://github.com/EdwinLove/MyTurn"
+        }
+    ],
+    "autoload": {
+        "psr-4": {
+            "EdwinLove\\MyTurn\\WordPress\\": "src/"
+        }
+    }
+}
