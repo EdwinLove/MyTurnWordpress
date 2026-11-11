@@ -50,3 +50,6 @@ wp-config.php
 # uncomment the next line
 #/wp-content/themes
 .idea
+
+# Plugin build output
+/build/

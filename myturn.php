@@ -1,9 +1,10 @@
 <?php
 /**
- * Plugin Name: KLOTH MyTurn
+ * Plugin Name: MyTurn
  * Description: MyTurn catalogue embeds and thing/search routes.
  * Version: 0.1.0
  * Requires PHP: 8.4
+ * Text Domain: myturn
  */
 
 declare(strict_types=1);

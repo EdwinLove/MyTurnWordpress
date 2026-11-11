@@ -13,13 +13,14 @@ use EdwinLove\MyTurn\Core\Infrastructure\Http\GuzzleMyTurnPageClient;
 
 final class Plugin
 {
-    private const SETTINGS_OPTION = 'kloth_myturn_settings';
-    private const REWRITE_FLUSH_OPTION = 'kloth_myturn_rewrite_flush_pending';
+    private const SETTINGS_OPTION = 'myturn_settings';
+    private const REWRITE_FLUSH_OPTION = 'myturn_rewrite_flush_pending';
     private const MYTURN_DOMAIN = 'myturn.com';
     private const DEFAULT_SETTINGS = [
-        'tenant_subdomain' => 'kloth.test',
+        'tenant_subdomain' => '',
         'thing_route' => 'thing/{id}',
         'search_route' => 'thing/search/{query}',
+        'location' => '',
     ];
 
     private ?EmbeddedPage $currentPage = null;
@@ -83,42 +84,43 @@ final class Plugin
     public function addSettingsPage(): void
     {
         add_options_page(
-            __('MyTurn settings', 'kloth-myturn'),
-            __('MyTurn', 'kloth-myturn'),
+            __('MyTurn settings', 'myturn'),
+            __('MyTurn', 'myturn'),
             'manage_options',
-            'kloth-myturn',
+            'myturn',
             [$this, 'renderSettingsPage']
         );
     }
 
     public function registerSettings(): void
     {
-        register_setting('kloth_myturn', self::SETTINGS_OPTION, [
+        register_setting('myturn', self::SETTINGS_OPTION, [
             'type' => 'array',
             'default' => self::DEFAULT_SETTINGS,
             'sanitize_callback' => [$this, 'sanitizeSettings'],
         ]);
 
         add_settings_section(
-            'kloth_myturn_routes',
-            __('MyTurn connection and WordPress URLs', 'kloth-myturn'),
+            'myturn_routes',
+            __('MyTurn connection and WordPress URLs', 'myturn'),
             static function (): void {
-                echo '<p>' . esc_html__('Set the MyTurn tenant and public WordPress URL patterns. The MyTurn URL paths and .myturn.com domain are fixed by this integration.', 'kloth-myturn') . '</p>';
+                echo '<p>' . esc_html__('Set the MyTurn tenant and public WordPress URL patterns. The MyTurn URL paths and .myturn.com domain are fixed by this integration.', 'myturn') . '</p>';
             },
-            'kloth-myturn'
+            'myturn'
         );
 
         foreach ([
-            'tenant_subdomain' => __('MyTurn tenant subdomain', 'kloth-myturn'),
-            'thing_route' => __('Thing URL pattern', 'kloth-myturn'),
-            'search_route' => __('Search URL pattern', 'kloth-myturn'),
+            'tenant_subdomain' => __('MyTurn tenant subdomain', 'myturn'),
+            'thing_route' => __('Thing URL pattern', 'myturn'),
+            'search_route' => __('Search URL pattern', 'myturn'),
+            'location' => __('MyTurn location (optional)', 'myturn'),
         ] as $key => $label) {
             add_settings_field(
                 $key,
                 $label,
                 [$this, 'renderSettingsField'],
-                'kloth-myturn',
-                'kloth_myturn_routes',
+                'myturn',
+                'myturn_routes',
                 ['key' => $key]
             );
         }
@@ -128,12 +130,12 @@ final class Plugin
     {
         ?>
         <div class="wrap">
-            <h1><?php echo esc_html__('MyTurn settings', 'kloth-myturn'); ?></h1>
+            <h1><?php echo esc_html__('MyTurn settings', 'myturn'); ?></h1>
             <?php settings_errors(self::SETTINGS_OPTION); ?>
             <form action="options.php" method="post">
                 <?php
-                settings_fields('kloth_myturn');
-                do_settings_sections('kloth-myturn');
+                settings_fields('myturn');
+                do_settings_sections('myturn');
                 submit_button();
                 ?>
             </form>
@@ -146,16 +148,19 @@ final class Plugin
         $key = $arguments['key'];
         $value = $this->settings()[$key];
         printf(
-            '<input class="regular-text" type="text" id="%1$s" name="%2$s[%1$s]" value="%3$s" />',
+            $key === 'location'
+                ? '<input class="small-text" type="number" min="0" step="1" id="%1$s" name="%2$s[%1$s]" value="%3$s" />'
+                : '<input class="regular-text" type="text" id="%1$s" name="%2$s[%1$s]" value="%3$s" />',
             esc_attr($key),
             esc_attr(self::SETTINGS_OPTION),
-            esc_attr($value)
+            esc_attr((string) $value)
         );
 
         $help = match ($key) {
-            'tenant_subdomain' => sprintf(__('Builds https://%s.%s/. Use labels only, for example kloth or kloth.test.', 'kloth-myturn'), '{value}', self::MYTURN_DOMAIN),
-            'thing_route' => __('WordPress path ending in {id}, for example thing/{id}.', 'kloth-myturn'),
-            'search_route' => __('WordPress path ending in {query}, for example thing/search/{query}.', 'kloth-myturn'),
+            'tenant_subdomain' => sprintf(__('Builds https://%s.%s/. Use labels only, for example mylibrary or mylibrary.test.', 'myturn'), '{value}', self::MYTURN_DOMAIN),
+            'thing_route' => __('WordPress path ending in {id}, for example thing/{id}.', 'myturn'),
+            'search_route' => __('WordPress path ending in {query}, for example thing/search/{query}.', 'myturn'),
+            'location' => __('Whole number. When set, ?location={value} is added to the catalogue, search and thing embeds. Leave blank for no location.', 'myturn'),
         };
         printf('<p class="description">%s</p>', esc_html($help));
     }
@@ -163,7 +168,7 @@ final class Plugin
     public function sanitizeSettings($input): array
     {
         if (!is_array($input)) {
-            add_settings_error(self::SETTINGS_OPTION, 'invalid_settings', __('MyTurn settings were not saved.', 'kloth-myturn'));
+            add_settings_error(self::SETTINGS_OPTION, 'invalid_settings', __('MyTurn settings were not saved.', 'myturn'));
 
             return $this->settings();
         }
@@ -172,16 +177,18 @@ final class Plugin
         $tenant = strtolower(trim(sanitize_text_field((string) ($input['tenant_subdomain'] ?? ''))));
         $thingRoute = $this->sanitizeRoute((string) ($input['thing_route'] ?? ''), '{id}');
         $searchRoute = $this->sanitizeRoute((string) ($input['search_route'] ?? ''), '{query}');
+        $location = trim(sanitize_text_field((string) ($input['location'] ?? '')));
+        $validLocation = $location === '' || ctype_digit($location);
         $validTenant = preg_match('/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*$/D', $tenant) === 1;
         $routesConflict = $thingRoute !== null
             && $searchRoute !== null
             && substr($thingRoute, 0, -strlen('/{id}')) === substr($searchRoute, 0, -strlen('/{query}'));
 
-        if (!$validTenant || $thingRoute === null || $searchRoute === null || $routesConflict) {
+        if (!$validTenant || $thingRoute === null || $searchRoute === null || $routesConflict || !$validLocation) {
             add_settings_error(
                 self::SETTINGS_OPTION,
                 'invalid_settings',
-                __('Check the tenant subdomain and route patterns. Thing must end in {id}; search must end in {query}.', 'kloth-myturn')
+                __('Check the tenant subdomain, route patterns and location. Thing must end in {id}; search must end in {query}; location must be a whole number or blank.', 'myturn')
             );
 
             return $settings;
@@ -191,6 +198,7 @@ final class Plugin
             'tenant_subdomain' => $tenant,
             'thing_route' => $thingRoute,
             'search_route' => $searchRoute,
+            'location' => $location === '' ? '' : (string) (int) $location,
         ];
     }
 
@@ -217,12 +225,12 @@ final class Plugin
 
     public function selectTemplate(string $template): string
     {
-        if (!$this->isMyTurnRoute()) {
+        if (!$this->isMyTurnRoute() || !$this->hasTenant()) {
             return $template;
         }
 
         $this->currentPage = $this->buildCurrentPage();
-        $GLOBALS['kloth_myturn_plugin'] = $this;
+        $GLOBALS['myturn_plugin'] = $this;
         global $wp_query;
         if (isset($wp_query) && is_object($wp_query)) {
             $wp_query->is_404 = false;
@@ -293,15 +301,19 @@ final class Plugin
 
     public function renderEmbedShortcode(array $attributes): string
     {
+        if (!$this->hasTenant()) {
+            return '';
+        }
+
         $attributes = shortcode_atts(['path' => 'inventory/browse/'], $attributes, 'myturn_embed');
         $path = sanitize_text_field((string) $attributes['path']);
-        $url = $this->embedUrl($path);
+        $url = $this->withLocation($this->embedUrl($path));
         $this->enqueueEmbedScript();
 
         return sprintf(
             '<iframe class="myturn-embed" src="%s" title="%s" height="2000" loading="lazy"></iframe>',
             esc_url($url),
-            esc_attr__('MyTurn catalogue', 'kloth-myturn')
+            esc_attr__('MyTurn catalogue', 'myturn')
         );
     }
 
@@ -312,16 +324,25 @@ final class Plugin
 
     public function enqueueEmbedScript(): void
     {
+        if (!$this->hasTenant()) {
+            return;
+        }
+
         if ($this->isMyTurnRoute() || (is_singular() && has_shortcode((string) get_post_field('post_content', get_queried_object_id()), 'myturn_embed'))) {
             $baseUrl = $this->myTurnBaseUrl();
             wp_enqueue_script(
-                'kloth-myturn-embed',
+                'myturn-embed',
                 rtrim($baseUrl, '/') . '/library/assets/ui/myturn-embed/myturn-embed.js',
                 [],
                 null,
                 true
             );
         }
+    }
+
+    private function hasTenant(): bool
+    {
+        return $this->settings()['tenant_subdomain'] !== '';
     }
 
     private function isMyTurnRoute(): bool
@@ -345,20 +366,31 @@ final class Plugin
             $searchQuery = (string) get_query_var('myturn_search');
             $canonicalPath = str_replace('{query}', rawurlencode($searchQuery), $settings['search_route']);
 
-            return (new BuildSearchPage($client, $myTurnBaseUrl, $siteBaseUrl))
+            $page = (new BuildSearchPage($client, $myTurnBaseUrl, $siteBaseUrl))
                 ->execute($searchQuery, user_trailingslashit($canonicalPath));
+
+            return new EmbeddedPage($this->withLocation($page->embedUrl), $page->canonicalUrl, $page->metadata);
         }
 
         $thingId = (int) get_query_var('myturn_thing');
         $canonicalPath = str_replace('{id}', (string) $thingId, $settings['thing_route']);
 
-        return (new BuildThingPage($client, $myTurnBaseUrl, $siteBaseUrl))
+        $page = (new BuildThingPage($client, $myTurnBaseUrl, $siteBaseUrl))
             ->execute($thingId, user_trailingslashit($canonicalPath));
+
+        return new EmbeddedPage($this->withLocation($page->embedUrl), $page->canonicalUrl, $page->metadata);
     }
 
     private function embedUrl(string $path): string
     {
         return EmbedUrl::fromPath($this->myTurnBaseUrl(), $path);
+    }
+
+    private function withLocation(string $url): string
+    {
+        $location = (string) $this->settings()['location'];
+
+        return $location === '' ? $url : add_query_arg('location', $location, $url);
     }
 
     private function myTurnBaseUrl(): string

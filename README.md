@@ -1,12 +1,12 @@
-# KLOTH MyTurn WordPress plugin
+# MyTurn WordPress plugin
 
 The plugin is a WordPress adapter for `packages/myturn-core`. The core contains page URL rules, application use cases, and the Guzzle/DOM metadata adapter; this plugin contains WordPress routes, shortcodes, output escaping, and SEO hooks.
 
 ## Install for local development
 
-From this directory, run `composer install`. The path repository links the sibling core package. For a standalone plugin distribution, publish `kloth/myturn-core` to a Composer repository and change the version constraint to a tagged release. Install the resulting `vendor/` directory with the plugin.
+From this directory, run `composer install`. The path repository links the sibling core package. For a standalone plugin distribution, publish `edwinlove/myturn-core` to a Composer repository and change the version constraint to a tagged release. Install the resulting `vendor/` directory with the plugin.
 
-The plugin requires PHP 8.4 or newer. Its `kloth/myturn-core` dependency supplies Guzzle 7 and the DOM extension. Configure the plugin under **Settings → MyTurn**. Set the tenant subdomain only, such as `kloth` or `kloth.test`; the plugin appends the fixed `.myturn.com` suffix. The WordPress thing and search URL patterns are configurable there and must end in `{id}` and `{query}` respectively. The internal MyTurn paths remain fixed by the integration. Canonical URLs use the WordPress site URL.
+The plugin requires PHP 8.4 or newer. Its `edwinlove/myturn-core` dependency supplies Guzzle 7 and the DOM extension. Configure the plugin under **Settings → MyTurn**. Set the tenant subdomain only, such as `mylibrary` or `mylibrary.test`; the plugin appends the fixed `.myturn.com` suffix. The WordPress thing and search URL patterns are configurable there and must end in `{id}` and `{query}` respectively. The internal MyTurn paths remain fixed by the integration. Canonical URLs use the WordPress site URL.
 
 ## WordPress pages and routes
 

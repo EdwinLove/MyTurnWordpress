@@ -1,10 +1,10 @@
 {
-    "name": "kloth/wordpress-myturn",
-    "description": "WordPress adapter for the framework-independent KLOTH MyTurn core",
+    "name": "edwinlove/myturn-wordpress",
+    "description": "WordPress adapter for the framework-independent MyTurn core",
     "type": "wordpress-plugin",
     "require": {
         "php": ">=8.4",
-        "kloth/myturn-core": "^1.0"
+        "edwinlove/myturn-core": "^1.0"
     },
     "repositories": [
         {
