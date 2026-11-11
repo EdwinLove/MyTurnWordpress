@@ -1,2 +1,2 @@
 # MyTurnWordpress
-Wordpress plugin too embed MyTurn Library of Things Saas product
+Wordpress plugin to embed MyTurn Library of Things Saas product
