@@ -16,11 +16,14 @@ final class Plugin
     private const SETTINGS_OPTION = 'myturn_settings';
     private const REWRITE_FLUSH_OPTION = 'myturn_rewrite_flush_pending';
     private const MYTURN_DOMAIN = 'myturn.com';
+    private const CATALOGUE_PATH = 'inventory/browse/';
+    private const PATH_PATTERN = '/^[a-z0-9]+(?:-[a-z0-9]+)*(?:\/[a-z0-9]+(?:-[a-z0-9]+)*)*$/D';
     private const DEFAULT_SETTINGS = [
         'tenant_subdomain' => '',
+        'catalogue_route' => 'catalogue',
         'thing_route' => 'thing/{id}',
         'search_route' => 'thing/search/{query}',
-        'location' => '',
+        'locations' => [],
     ];
 
     private ?EmbeddedPage $currentPage = null;
@@ -69,14 +72,26 @@ final class Plugin
         $thingPrefix = substr($settings['thing_route'], 0, -strlen('/{id}'));
         $searchPrefix = substr($settings['search_route'], 0, -strlen('/{query}'));
 
+        if ($settings['catalogue_route'] !== '') {
+            $locations = $settings['locations'] ?: [['title' => '', 'code' => '']];
+            foreach ($locations as $location) {
+                $path = preg_quote($this->cataloguePath($location), '#');
+                $locationQuery = $location['code'] === '' ? '' : '&myturn_location=' . $location['code'];
+                add_rewrite_rule('^' . $path . '/?$', 'index.php?myturn_catalogue=1' . $locationQuery, 'top');
+                add_rewrite_rule('^' . $path . '/search/([^/]+)/?$', 'index.php?myturn_search=$matches[1]&myturn_catalogue_search=1' . $locationQuery, 'top');
+            }
+        }
         add_rewrite_rule('^' . preg_quote($searchPrefix, '#') . '/([^/]+)/?$', 'index.php?myturn_search=$matches[1]', 'top');
         add_rewrite_rule('^' . preg_quote($thingPrefix, '#') . '/([0-9]+)/?$', 'index.php?myturn_thing=$matches[1]', 'top');
     }
 
     public function registerQueryVars(array $vars): array
     {
+        $vars[] = 'myturn_catalogue';
         $vars[] = 'myturn_thing';
         $vars[] = 'myturn_search';
+        $vars[] = 'myturn_location';
+        $vars[] = 'myturn_catalogue_search';
 
         return $vars;
     }
@@ -111,9 +126,10 @@ final class Plugin
 
         foreach ([
             'tenant_subdomain' => __('MyTurn tenant subdomain', 'myturn'),
+            'catalogue_route' => __('Catalogue URL path', 'myturn'),
             'thing_route' => __('Thing URL pattern', 'myturn'),
             'search_route' => __('Search URL pattern', 'myturn'),
-            'location' => __('MyTurn location (optional)', 'myturn'),
+            'locations' => __('MyTurn locations', 'myturn'),
         ] as $key => $label) {
             add_settings_field(
                 $key,
@@ -146,11 +162,13 @@ final class Plugin
     public function renderSettingsField(array $arguments): void
     {
         $key = $arguments['key'];
+        if ($key === 'locations') {
+            $this->renderLocationsField();
+            return;
+        }
         $value = $this->settings()[$key];
         printf(
-            $key === 'location'
-                ? '<input class="small-text" type="number" min="0" step="1" id="%1$s" name="%2$s[%1$s]" value="%3$s" />'
-                : '<input class="regular-text" type="text" id="%1$s" name="%2$s[%1$s]" value="%3$s" />',
+            '<input class="regular-text" type="text" id="%1$s" name="%2$s[%1$s]" value="%3$s" />',
             esc_attr($key),
             esc_attr(self::SETTINGS_OPTION),
             esc_attr((string) $value)
@@ -158,9 +176,9 @@ final class Plugin
 
         $help = match ($key) {
             'tenant_subdomain' => sprintf(__('Builds https://%s.%s/. Use labels only, for example mylibrary or mylibrary.test.', 'myturn'), '{value}', self::MYTURN_DOMAIN),
+            'catalogue_route' => __('WordPress path for the MyTurn catalogue, for example catalogue or things. Leave blank to turn the catalogue page off.', 'myturn'),
             'thing_route' => __('WordPress path ending in {id}, for example thing/{id}.', 'myturn'),
             'search_route' => __('WordPress path ending in {query}, for example thing/search/{query}.', 'myturn'),
-            'location' => __('Whole number. When set, ?location={value} is added to the catalogue, search and thing embeds. Leave blank for no location.', 'myturn'),
         };
         printf('<p class="description">%s</p>', esc_html($help));
     }
@@ -175,20 +193,21 @@ final class Plugin
 
         $settings = $this->settings();
         $tenant = strtolower(trim(sanitize_text_field((string) ($input['tenant_subdomain'] ?? ''))));
+        $catalogueRoute = strtolower(trim(sanitize_text_field((string) ($input['catalogue_route'] ?? '')), '/'));
+        $validCatalogueRoute = $catalogueRoute === '' || preg_match(self::PATH_PATTERN, $catalogueRoute) === 1;
         $thingRoute = $this->sanitizeRoute((string) ($input['thing_route'] ?? ''), '{id}');
         $searchRoute = $this->sanitizeRoute((string) ($input['search_route'] ?? ''), '{query}');
-        $location = trim(sanitize_text_field((string) ($input['location'] ?? '')));
-        $validLocation = $location === '' || ctype_digit($location);
+        $locations = $this->sanitizeLocations($input['locations'] ?? []);
         $validTenant = preg_match('/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*$/D', $tenant) === 1;
         $routesConflict = $thingRoute !== null
             && $searchRoute !== null
             && substr($thingRoute, 0, -strlen('/{id}')) === substr($searchRoute, 0, -strlen('/{query}'));
 
-        if (!$validTenant || $thingRoute === null || $searchRoute === null || $routesConflict || !$validLocation) {
+        if (!$validTenant || !$validCatalogueRoute || $thingRoute === null || $searchRoute === null || $routesConflict || $locations === null) {
             add_settings_error(
                 self::SETTINGS_OPTION,
                 'invalid_settings',
-                __('Check the tenant subdomain, route patterns and location. Thing must end in {id}; search must end in {query}; location must be a whole number or blank.', 'myturn')
+                __('Check the tenant subdomain, URL paths and locations. Each location needs a non-negative integer code. Location codes must be unique; multiple locations need titles with unique URL slugs. Thing must end in {id} and search in {query}.', 'myturn')
             );
 
             return $settings;
@@ -196,15 +215,18 @@ final class Plugin
 
         return [
             'tenant_subdomain' => $tenant,
+            'catalogue_route' => $catalogueRoute,
             'thing_route' => $thingRoute,
             'search_route' => $searchRoute,
-            'location' => $location === '' ? '' : (string) (int) $location,
+            'locations' => $locations,
         ];
     }
 
     public function settingsUpdated($oldSettings, $newSettings): void
     {
-        if (($oldSettings['thing_route'] ?? null) !== ($newSettings['thing_route'] ?? null)
+        if (($oldSettings['locations'] ?? []) !== ($newSettings['locations'] ?? [])
+            || ($oldSettings['catalogue_route'] ?? null) !== ($newSettings['catalogue_route'] ?? null)
+            || ($oldSettings['thing_route'] ?? null) !== ($newSettings['thing_route'] ?? null)
             || ($oldSettings['search_route'] ?? null) !== ($newSettings['search_route'] ?? null)) {
             update_option(self::REWRITE_FLUSH_OPTION, 1, false);
         }
@@ -305,7 +327,7 @@ final class Plugin
             return '';
         }
 
-        $attributes = shortcode_atts(['path' => 'inventory/browse/'], $attributes, 'myturn_embed');
+        $attributes = shortcode_atts(['path' => self::CATALOGUE_PATH], $attributes, 'myturn_embed');
         $path = sanitize_text_field((string) $attributes['path']);
         $url = $this->withLocation($this->embedUrl($path));
         $this->enqueueEmbedScript();
@@ -347,7 +369,12 @@ final class Plugin
 
     private function isMyTurnRoute(): bool
     {
-        return (bool) get_query_var('myturn_thing') || get_query_var('myturn_search') !== '';
+        return $this->isCataloguePage() || (bool) get_query_var('myturn_thing') || get_query_var('myturn_search') !== '';
+    }
+
+    private function isCataloguePage(): bool
+    {
+        return (bool) get_query_var('myturn_catalogue') && $this->settings()['catalogue_route'] !== '';
     }
 
     private function isThingPage(): bool
@@ -362,9 +389,21 @@ final class Plugin
         $siteBaseUrl = home_url('/');
         $settings = $this->settings();
 
+        if ($this->isCataloguePage()) {
+            $embedUrl = $this->embedUrl(self::CATALOGUE_PATH);
+
+            return new EmbeddedPage(
+                $this->withLocation($embedUrl),
+                EmbedUrl::pageUrl($siteBaseUrl, user_trailingslashit($this->cataloguePath($this->currentLocation()))),
+                $client->getMetadata($embedUrl),
+            );
+        }
+
         if (get_query_var('myturn_search') !== '') {
             $searchQuery = (string) get_query_var('myturn_search');
-            $canonicalPath = str_replace('{query}', rawurlencode($searchQuery), $settings['search_route']);
+            $canonicalPath = get_query_var('myturn_catalogue_search')
+                ? $this->cataloguePath($this->currentLocation()) . '/search/' . rawurlencode($searchQuery)
+                : str_replace('{query}', rawurlencode($searchQuery), $settings['search_route']);
 
             $page = (new BuildSearchPage($client, $myTurnBaseUrl, $siteBaseUrl))
                 ->execute($searchQuery, user_trailingslashit($canonicalPath));
@@ -388,9 +427,117 @@ final class Plugin
 
     private function withLocation(string $url): string
     {
-        $location = (string) $this->settings()['location'];
+        $location = $this->currentLocation()['code'] ?? '';
 
         return $location === '' ? $url : add_query_arg('location', $location, $url);
+    }
+
+    private function cataloguePath(?array $location): string
+    {
+        $path = $this->settings()['catalogue_route'];
+        $slug = sanitize_title($location['title'] ?? '');
+
+        return $slug === '' ? $path : $path . '/' . $slug;
+    }
+
+    private function currentLocation(): ?array
+    {
+        $locations = $this->settings()['locations'];
+        $code = (string) get_query_var('myturn_location');
+        if ($code !== '') {
+            foreach ($locations as $location) {
+                if ($location['code'] === $code) {
+                    return $location;
+                }
+            }
+            return null;
+        }
+
+        return count($locations) === 1 ? $locations[0] : null;
+    }
+
+    private function sanitizeLocations($input): ?array
+    {
+        if (!is_array($input)) {
+            return null;
+        }
+        $locations = [];
+        $slugs = [];
+        $codes = [];
+        foreach ($input as $row) {
+            if (!is_array($row) || !is_scalar($row['title'] ?? '') || !is_scalar($row['code'] ?? '')) {
+                return null;
+            }
+            $title = trim(sanitize_text_field((string) ($row['title'] ?? '')));
+            $code = trim((string) ($row['code'] ?? ''));
+            if ($title === '' && $code === '') {
+                continue;
+            }
+            if (!ctype_digit($code)) {
+                return null;
+            }
+            $code = ltrim($code, '0') ?: '0';
+            if (strlen($code) > strlen((string) PHP_INT_MAX)
+                || (strlen($code) === strlen((string) PHP_INT_MAX) && strcmp($code, (string) PHP_INT_MAX) > 0)) {
+                return null;
+            }
+            $slug = sanitize_title($title);
+            if (($title !== '' && $slug === '') || in_array($slug, $slugs, true) || in_array($code, $codes, true)) {
+                return null;
+            }
+            $slugs[] = $slug;
+            $codes[] = $code;
+            $locations[] = ['title' => $title, 'code' => $code];
+        }
+        if (count($locations) > 1 && in_array('', $slugs, true)) {
+            return null;
+        }
+
+        return $locations;
+    }
+
+    public function renderLocationsField(): void
+    {
+        $locations = $this->settings()['locations'] ?: [['title' => '', 'code' => '']];
+        ?>
+        <div id="myturn-locations">
+            <?php foreach ($locations as $index => $location): ?>
+                <p class="myturn-location">
+                    <label><?php echo esc_html__('Title', 'myturn'); ?>
+                        <input type="text" name="myturn_settings[locations][<?php echo (int) $index; ?>][title]" value="<?php echo esc_attr($location['title']); ?>" />
+                    </label>
+                    <label><?php echo esc_html__('Code', 'myturn'); ?>
+                        <input type="number" min="0" max="<?php echo PHP_INT_MAX; ?>" step="1" name="myturn_settings[locations][<?php echo (int) $index; ?>][code]" value="<?php echo esc_attr($location['code']); ?>" />
+                    </label>
+                    <button type="button" class="button myturn-remove-location"><?php echo esc_html__('Remove', 'myturn'); ?></button>
+                </p>
+            <?php endforeach; ?>
+        </div>
+        <button type="button" class="button" id="myturn-add-location"><?php echo esc_html__('Add location', 'myturn'); ?></button>
+        <p class="description"><?php echo esc_html__('Each location needs an integer code. Titles form URL slugs under the catalogue path, with searches at /search/{term}. A single location may have no title to use the catalogue path directly. With multiple locations, titles and codes must be unique. Remove all locations for an unfiltered catalogue.', 'myturn'); ?></p>
+        <script>
+        (() => {
+            const container = document.getElementById('myturn-locations');
+            const template = container.querySelector('.myturn-location').cloneNode(true);
+            let nextIndex = container.children.length;
+            document.getElementById('myturn-add-location').addEventListener('click', () => {
+                const row = template.cloneNode(true);
+                row.querySelectorAll('input').forEach(input => {
+                    input.name = input.name.replace(/\[locations\]\[\d+\]/, '[locations][' + nextIndex + ']');
+                    input.value = '';
+                });
+                nextIndex++;
+                container.appendChild(row);
+                row.querySelector('input').focus();
+            });
+            container.addEventListener('click', event => {
+                if (event.target.classList.contains('myturn-remove-location')) {
+                    event.target.closest('.myturn-location').remove();
+                }
+            });
+        })();
+        </script>
+        <?php
     }
 
     private function myTurnBaseUrl(): string
@@ -400,7 +547,14 @@ final class Plugin
 
     private function settings(): array
     {
-        return array_merge(self::DEFAULT_SETTINGS, get_option(self::SETTINGS_OPTION, []));
+        $saved = get_option(self::SETTINGS_OPTION, []);
+        $settings = array_merge(self::DEFAULT_SETTINGS, $saved);
+        // Upgrade the previous single-location setting without changing its public path.
+        if (!array_key_exists('locations', $saved) && ($settings['location'] ?? '') !== '') {
+            $settings['locations'] = [['title' => '', 'code' => (string) $settings['location']]];
+        }
+
+        return $settings;
     }
 
     private function sanitizeRoute(string $route, string $placeholder): ?string
@@ -412,7 +566,7 @@ final class Plugin
         }
 
         $prefix = substr($route, 0, -strlen($suffix));
-        if ($prefix === '' || preg_match('/^[a-z0-9]+(?:-[a-z0-9]+)*(?:\/[a-z0-9]+(?:-[a-z0-9]+)*)*$/D', $prefix) !== 1) {
+        if ($prefix === '' || preg_match(self::PATH_PATTERN, $prefix) !== 1) {
             return null;
         }
 
