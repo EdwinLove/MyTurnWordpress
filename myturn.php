@@ -2,8 +2,8 @@
 /**
  * Plugin Name: MyTurn
  * Description: MyTurn catalogue embeds and thing/search routes.
- * Version: 0.1.0
- * Requires PHP: 8.4
+ * Version: 0.0.2
+ * Requires PHP: 8.3
  * Text Domain: myturn
  */
 

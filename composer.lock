@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "c43e8c450cdb02b9993f555eba38b6a3",
+    "content-hash": "8f60673f6769c180423fe46ec225c451",
     "packages": [
         {
             "name": "edwinlove/myturn-core",
@@ -752,7 +752,7 @@
     "prefer-stable": false,
     "prefer-lowest": false,
     "platform": {
-        "php": ">=8.4"
+        "php": ">=8.3"
     },
     "platform-dev": {},
     "plugin-api-version": "2.6.0"

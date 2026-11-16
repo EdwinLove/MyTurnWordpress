@@ -3,7 +3,7 @@
     "description": "WordPress adapter for the framework-independent MyTurn core",
     "type": "wordpress-plugin",
     "require": {
-        "php": ">=8.4",
+        "php": ">=8.3",
         "edwinlove/myturn-core": "^1.0"
     },
     "repositories": [
