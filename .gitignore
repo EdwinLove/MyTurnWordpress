@@ -53,3 +53,4 @@ wp-config.php
 
 # Plugin build output
 /build/
+.DS_Store

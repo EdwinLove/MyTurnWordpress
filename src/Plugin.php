@@ -155,8 +155,100 @@ final class Plugin
                 submit_button();
                 ?>
             </form>
+            <?php $this->renderBookmarklets(); ?>
         </div>
         <?php
+    }
+
+    private function renderBookmarklets(): void
+    {
+        $bookmarklets = [
+            'thing' => [__('Copy WordPress thing link', 'myturn'), $this->thingLinkBookmarklet()],
+            'search' => [__('Copy WordPress search link', 'myturn'), $this->searchLinkBookmarklet()],
+        ];
+        ?>
+        <h2><?php echo esc_html__('MyTurn link bookmarks', 'myturn'); ?></h2>
+        <p><?php echo esc_html__('Save your settings first, then drag these links to your browser bookmarks bar. Use them on a thing or search page in MyTurn to copy the corresponding WordPress link.', 'myturn'); ?></p>
+        <p><?php echo esc_html__('The search bookmark uses the location in the MyTurn URL. With multiple configured locations, it asks you to choose one if no matching location is present. A single configured location is selected automatically.', 'myturn'); ?></p>
+        <?php foreach ($bookmarklets as $type => [$label, $bookmarklet]): ?>
+            <?php if ($bookmarklet === null): ?>
+                <p><?php echo esc_html__('Enable the Catalogue URL path to generate search bookmarks for configured locations.', 'myturn'); ?></p>
+                <?php continue; ?>
+            <?php endif; ?>
+            <p><a class="button" href="<?php
+                // Generated bookmarklet JavaScript must retain its javascript: scheme.
+                // esc_url() removes that scheme; escape the attribute instead.
+                echo esc_attr($bookmarklet);
+            ?>"><?php echo esc_html($label); ?></a></p>
+            <p><label for="myturn-<?php echo esc_attr($type); ?>-bookmarklet"><?php echo esc_html(sprintf(__('Alternatively, paste this URL into a bookmark named “%s”:', 'myturn'), $label)); ?></label></p>
+            <textarea id="myturn-<?php echo esc_attr($type); ?>-bookmarklet" class="large-text code" rows="3" readonly><?php echo esc_textarea($bookmarklet); ?></textarea>
+        <?php endforeach; ?>
+        <p class="description"><?php echo esc_html__('If clipboard access fails, a prompt offers the link for manual copying. Replace saved bookmarks after changing the site URL, routes or locations.', 'myturn'); ?></p>
+        <?php
+    }
+
+    private function thingLinkBookmarklet(): string
+    {
+        return $this->bookmarklet(<<<'JS'
+const id=window.location.pathname.replace(/\/+$/, '').split('/').pop();
+if(!/^[0-9]+$/.test(id)){window.alert(INVALID_MESSAGE);return;}
+await copy(URL_TEMPLATE.replace('{id}',id));
+JS, [
+            'URL_TEMPLATE' => home_url('/' . user_trailingslashit($this->settings()['thing_route'])),
+            'INVALID_MESSAGE' => __('Open a thing page in the MyTurn admin first. Its URL must end with the numeric thing ID.', 'myturn'),
+        ]);
+    }
+
+    private function searchLinkBookmarklet(): ?string
+    {
+        $settings = $this->settings();
+        if ($settings['locations'] !== [] && $settings['catalogue_route'] === '') {
+            return null;
+        }
+        $locations = [];
+        foreach ($settings['locations'] as $location) {
+            $locations[] = [
+                'title' => $location['title'] ?: __('Location', 'myturn') . ' ' . $location['code'],
+                'code' => $location['code'],
+                'url' => home_url('/' . user_trailingslashit($this->cataloguePath($location) . '/search/{query}')),
+            ];
+        }
+
+        return $this->bookmarklet(<<<'JS'
+const params=new URL(window.location.href).searchParams;
+const query=params.get('q');
+if(query===null||query.trim()===''){window.alert(INVALID_MESSAGE);return;}
+const locations=LOCATIONS;
+const code=(params.get('location')||'').replace(/^0+(?=\d)/,'');
+let location=locations.find(entry=>entry.code===code);
+if(!location&&locations.length===1){location=locations[0];}
+if(!location&&locations.length>1){
+    const choice=window.prompt(LOCATION_MESSAGE+'\n'+locations.map((entry,index)=>(index+1)+'. '+entry.title+' ('+entry.code+')').join('\n'));
+    if(choice===null){return;}
+    if(!/^[1-9][0-9]*$/.test(choice.trim())||!locations[Number(choice.trim())-1]){window.alert(INVALID_LOCATION_MESSAGE);return;}
+    location=locations[Number(choice.trim())-1];
+}
+const template=location?location.url:URL_TEMPLATE;
+await copy(template.replace('{query}',encodeURIComponent(query)));
+JS, [
+            'URL_TEMPLATE' => home_url('/' . user_trailingslashit($settings['search_route'])),
+            'LOCATIONS' => $locations,
+            'INVALID_MESSAGE' => __('Open a MyTurn search page with a search term in its q parameter first.', 'myturn'),
+            'LOCATION_MESSAGE' => __('Choose the WordPress search location by entering its number (the MyTurn URL has no matching configured location):', 'myturn'),
+            'INVALID_LOCATION_MESSAGE' => __('No link copied. Use the bookmark again and enter one of the listed location numbers.', 'myturn'),
+        ]);
+    }
+
+    private function bookmarklet(string $body, array $values): string
+    {
+        $values['COPY_MESSAGE'] = __('Copy this WordPress link:', 'myturn');
+        $replacements = [];
+        foreach ($values as $key => $value) {
+            $replacements[$key] = wp_json_encode($value, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
+        }
+        $script = "(async()=>{const copy=async(url)=>{try{await navigator.clipboard.writeText(url);}catch(error){window.prompt(COPY_MESSAGE,url);}};\n" . $body . "\n})();";
+
+        return 'javascript:' . rawurlencode(strtr($script, $replacements));
     }
 
     public function renderSettingsField(array $arguments): void

@@ -35,3 +35,19 @@ The Guzzle adapter treats metadata as optional: failed requests or missing Open 
 ## Checks
 
 Run `php tests/locations.php` for location validation, URL routing, embed filtering, legacy settings, and rewrite refresh checks using WordPress function stubs. These checks do not require a running WordPress installation.
+
+## Thing and search link bookmarklets
+
+Under **Settings → MyTurn**, save your settings, then drag **Copy WordPress thing link** and **Copy WordPress search link** to your bookmarks bar. Read-only URL fields are also provided for creating bookmarks manually. Use the bookmarks while viewing the corresponding page in MyTurn. If clipboard access fails, a prompt offers the generated link for manual copying.
+
+One search bookmark supports every configured location. It reads `q` and `location` from the current MyTurn URL, matches the location code against the saved settings, and copies the location-specific catalogue search URL. If there are multiple locations and no matching code, it asks you to select a location by number. Cancel stops without copying. A single configured location is selected automatically; with no configured locations it uses the saved Search URL pattern. Configured locations require the Catalogue URL path to be enabled for the search bookmark to be available.
+
+Bookmarks use the WordPress public site URL and trailing-slash convention. Replace saved bookmarks after changing the site URL, routes or locations. The thing bookmark reads a numeric ID from the final path segment, ignoring a trailing slash, query string or fragment.
+
+Run `node tests/bookmarklets.cjs` to check generated bookmark behavior (requires PHP and Node, with no npm dependencies).
+
+## Updating the PHP minimum
+
+The plugin and core source require PHP 8.3 or newer. When changing this minimum, update both packages' Composer requirements and this plugin's `Requires PHP` header, then refresh their lockfiles and rebuild dependencies with Composer.
+
+The current plugin lockfile still pins core v1.0.1, whose published metadata requires PHP 8.4. Before distributing a PHP 8.3-compatible ZIP, release the updated core under a new version, run `composer update edwinlove/myturn-core --with-dependencies` here, and rebuild using `bin/build-zip.sh`. Do not edit the locked core's PHP requirement or generated `vendor/composer/platform_check.php` by hand: they must describe the actual published dependency. Check the finished build on PHP 8.3 before release.
