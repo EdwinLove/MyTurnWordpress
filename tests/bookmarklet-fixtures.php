@@ -23,6 +23,8 @@ $scenarios = [
     'single' => ['locations' => [['title' => '', 'code' => '12']]],
     'none' => ['locations' => []],
     'disabled' => ['locations' => [['title' => 'North', 'code' => '7']], 'catalogue_route' => ''],
+    'custom' => ['search_segment' => 'find', 'locations' => [['title' => 'North', 'code' => '7']]],
+    'customNone' => ['search_segment' => 'find', 'locations' => []],
     'legacy' => ['location' => '9'],
 ];
 $fixtures = [];

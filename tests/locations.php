@@ -36,11 +36,12 @@ function route($path) {
 }
 
 $plugin = new Plugin();
-$base = ['tenant_subdomain' => 'library', 'catalogue_route' => 'catalogue', 'thing_route' => 'thing/{id}', 'search_route' => 'thing/search/{query}'];
+$base = ['tenant_subdomain' => 'library', 'catalogue_route' => 'catalogue', 'thing_route' => 'thing/{id}'];
 $options['myturn_settings'] = $plugin->sanitizeSettings($base + ['locations' => [
     ['title' => 'North Branch', 'code' => '007'], ['title' => 'South', 'code' => '0'],
 ]]);
 check($errors === [], 'Valid locations should save');
+check(!array_key_exists('search_route', $plugin->sanitizeSettings($base + ['search_route' => 'old/{query}'])), 'Obsolete search setting should not be saved');
 $plugin->addRewriteRules();
 foreach (['north-branch' => '7', 'south' => '0'] as $slug => $code) {
     $query = route('catalogue/' . $slug);
@@ -49,13 +50,12 @@ foreach (['north-branch' => '7', 'south' => '0'] as $slug => $code) {
     check(str_ends_with(invoke($plugin, 'withLocation', 'https://library.myturn.com/library/inventory/browse/?embed=true'), '&location=' . $code), 'Catalogue embed should select location');
     $query = route('catalogue/' . $slug . '/search/power%20drill/');
     check(($query['myturn_search'] ?? '') === 'power%20drill', 'Search route should preserve encoded term');
-    check(($query['myturn_catalogue_search'] ?? '') === '1', 'Search route should use catalogue canonical path');
     check(str_ends_with(invoke($plugin, 'withLocation', 'https://library.myturn.com/library/inventory/search?embed=true'), '&location=' . $code), 'Search embed should select location');
 }
 check(route('catalogue/unknown') === [], 'Unknown location should not match');
 check(route('catalogue') === [], 'Multiple locations should require a title in the path');
 check(route('thing/42') === ['myturn_thing' => '42'], 'Existing thing route should still work');
-check(route('thing/search/drill') === ['myturn_search' => 'drill'], 'Existing search route should still work');
+check(route('thing/search/drill') === [], 'Standalone search route should be removed');
 
 foreach ([
     [['title' => '', 'code' => '1'], ['title' => 'South', 'code' => '2']],
@@ -106,6 +106,24 @@ foreach ([[], [['title' => '', 'code' => '7']], [['title' => 'North Branch', 'co
     check(($query['myturn_search'] ?? '') === 'drill', 'Search should use configured base path');
     check(route('catalogue') === [] && route('catalogue/north-branch/search/drill') === [], 'Default catalogue path should not remain active');
 }
+foreach ([[], [['title' => '', 'code' => '7']], [['title' => 'North', 'code' => '7'], ['title' => 'South', 'code' => '12']]] as $locations) {
+    $options['myturn_settings'] = $plugin->sanitizeSettings($base + ['search_segment' => 'find', 'locations' => $locations]);
+    $rules = [];
+    $plugin->addRewriteRules();
+    $path = count($locations) > 1 ? 'catalogue/north' : 'catalogue';
+    $query = route($path . '/find/drill');
+    check(($query['myturn_search'] ?? '') === 'drill', 'Custom search segment should route');
+    check(invoke($plugin, 'searchPath', invoke($plugin, 'currentLocation')) === $path . '/find', 'Canonical path should use custom search segment');
+    check(route($path . '/search/drill') === [], 'Default segment should be replaced');
+}
+foreach (['', 'find/tools', '{query}', 'find?'] as $segment) {
+    $errors = [];
+    $plugin->sanitizeSettings($base + ['search_segment' => $segment]);
+    check(count($errors) === 1, 'Invalid search segment should be rejected');
+}
+unset($options['myturn_rewrite_flush_pending']);
+$plugin->settingsUpdated(['search_segment' => 'search'], ['search_segment' => 'find']);
+check(($options['myturn_rewrite_flush_pending'] ?? null) === 1, 'Search segment changes should refresh rewrites');
 $options['myturn_settings']['catalogue_route'] = '';
 $rules = [];
 $plugin->addRewriteRules();

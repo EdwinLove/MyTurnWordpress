@@ -21,8 +21,8 @@ final class Plugin
     private const DEFAULT_SETTINGS = [
         'tenant_subdomain' => '',
         'catalogue_route' => 'catalogue',
+        'search_segment' => 'search',
         'thing_route' => 'thing/{id}',
-        'search_route' => 'thing/search/{query}',
         'locations' => [],
     ];
 
@@ -70,7 +70,6 @@ final class Plugin
     {
         $settings = $this->settings();
         $thingPrefix = substr($settings['thing_route'], 0, -strlen('/{id}'));
-        $searchPrefix = substr($settings['search_route'], 0, -strlen('/{query}'));
 
         if ($settings['catalogue_route'] !== '') {
             $locations = $settings['locations'] ?: [['title' => '', 'code' => '']];
@@ -78,10 +77,9 @@ final class Plugin
                 $path = preg_quote($this->cataloguePath($location), '#');
                 $locationQuery = $location['code'] === '' ? '' : '&myturn_location=' . $location['code'];
                 add_rewrite_rule('^' . $path . '/?$', 'index.php?myturn_catalogue=1' . $locationQuery, 'top');
-                add_rewrite_rule('^' . $path . '/search/([^/]+)/?$', 'index.php?myturn_search=$matches[1]&myturn_catalogue_search=1' . $locationQuery, 'top');
+                add_rewrite_rule('^' . $path . '/' . preg_quote($settings['search_segment'], '#') . '/([^/]+)/?$', 'index.php?myturn_search=$matches[1]' . $locationQuery, 'top');
             }
         }
-        add_rewrite_rule('^' . preg_quote($searchPrefix, '#') . '/([^/]+)/?$', 'index.php?myturn_search=$matches[1]', 'top');
         add_rewrite_rule('^' . preg_quote($thingPrefix, '#') . '/([0-9]+)/?$', 'index.php?myturn_thing=$matches[1]', 'top');
     }
 
@@ -91,7 +89,6 @@ final class Plugin
         $vars[] = 'myturn_thing';
         $vars[] = 'myturn_search';
         $vars[] = 'myturn_location';
-        $vars[] = 'myturn_catalogue_search';
 
         return $vars;
     }
@@ -128,7 +125,7 @@ final class Plugin
             'tenant_subdomain' => __('MyTurn tenant subdomain', 'myturn'),
             'catalogue_route' => __('Catalogue URL path', 'myturn'),
             'thing_route' => __('Thing URL pattern', 'myturn'),
-            'search_route' => __('Search URL pattern', 'myturn'),
+            'search_segment' => __('Search URL segment', 'myturn'),
             'locations' => __('MyTurn locations', 'myturn'),
         ] as $key => $label) {
             add_settings_field(
@@ -172,7 +169,7 @@ final class Plugin
         <p><?php echo esc_html__('The search bookmark uses the location in the MyTurn URL. With multiple configured locations, it asks you to choose one if no matching location is present. A single configured location is selected automatically.', 'myturn'); ?></p>
         <?php foreach ($bookmarklets as $type => [$label, $bookmarklet]): ?>
             <?php if ($bookmarklet === null): ?>
-                <p><?php echo esc_html__('Enable the Catalogue URL path to generate search bookmarks for configured locations.', 'myturn'); ?></p>
+                <p><?php echo esc_html__('Enable the Catalogue URL path to generate search bookmarks.', 'myturn'); ?></p>
                 <?php continue; ?>
             <?php endif; ?>
             <p>
@@ -234,7 +231,7 @@ JS, [
     private function searchLinkBookmarklet(): ?string
     {
         $settings = $this->settings();
-        if ($settings['locations'] !== [] && $settings['catalogue_route'] === '') {
+        if ($settings['catalogue_route'] === '') {
             return null;
         }
         $locations = [];
@@ -242,7 +239,7 @@ JS, [
             $locations[] = [
                 'title' => $location['title'] ?: __('Location', 'myturn') . ' ' . $location['code'],
                 'code' => $location['code'],
-                'url' => home_url('/' . user_trailingslashit($this->cataloguePath($location) . '/search/{query}')),
+                'url' => home_url('/' . user_trailingslashit($this->searchPath($location) . '/{query}')),
             ];
         }
 
@@ -263,7 +260,7 @@ if(!location&&locations.length>1){
 const template=location?location.url:URL_TEMPLATE;
 await copy(template.replace('{query}',encodeURIComponent(query)));
 JS, [
-            'URL_TEMPLATE' => home_url('/' . user_trailingslashit($settings['search_route'])),
+            'URL_TEMPLATE' => home_url('/' . user_trailingslashit($this->searchPath(null) . '/{query}')),
             'LOCATIONS' => $locations,
             'INVALID_MESSAGE' => __('Open a MyTurn search page with a search term in its q parameter first.', 'myturn'),
             'LOCATION_MESSAGE' => __('Choose the WordPress search location by entering its number (the MyTurn URL has no matching configured location):', 'myturn'),
@@ -302,7 +299,7 @@ JS, [
             'tenant_subdomain' => sprintf(__('Builds https://%s.%s/. Use labels only, for example mylibrary or mylibrary.test.', 'myturn'), '{value}', self::MYTURN_DOMAIN),
             'catalogue_route' => __('WordPress path for the MyTurn catalogue, for example catalogue or things. Leave blank to turn the catalogue page off.', 'myturn'),
             'thing_route' => __('WordPress path ending in {id}, for example thing/{id}.', 'myturn'),
-            'search_route' => __('WordPress path ending in {query}, for example thing/search/{query}.', 'myturn'),
+            'search_segment' => __('Word used before the search term under each catalogue location, for example search or find. Use one URL segment, without slashes.', 'myturn'),
         };
         printf('<p class="description">%s</p>', esc_html($help));
     }
@@ -320,18 +317,16 @@ JS, [
         $catalogueRoute = strtolower(trim(sanitize_text_field((string) ($input['catalogue_route'] ?? '')), '/'));
         $validCatalogueRoute = $catalogueRoute === '' || preg_match(self::PATH_PATTERN, $catalogueRoute) === 1;
         $thingRoute = $this->sanitizeRoute((string) ($input['thing_route'] ?? ''), '{id}');
-        $searchRoute = $this->sanitizeRoute((string) ($input['search_route'] ?? ''), '{query}');
+        $searchSegment = strtolower(trim(sanitize_text_field((string) ($input['search_segment'] ?? 'search'))));
+        $validSearchSegment = preg_match('/^[a-z0-9]+(?:-[a-z0-9]+)*$/D', $searchSegment) === 1;
         $locations = $this->sanitizeLocations($input['locations'] ?? []);
         $validTenant = preg_match('/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*$/D', $tenant) === 1;
-        $routesConflict = $thingRoute !== null
-            && $searchRoute !== null
-            && substr($thingRoute, 0, -strlen('/{id}')) === substr($searchRoute, 0, -strlen('/{query}'));
 
-        if (!$validTenant || !$validCatalogueRoute || $thingRoute === null || $searchRoute === null || $routesConflict || $locations === null) {
+        if (!$validTenant || !$validCatalogueRoute || !$validSearchSegment || $thingRoute === null || $locations === null) {
             add_settings_error(
                 self::SETTINGS_OPTION,
                 'invalid_settings',
-                __('Check the tenant subdomain, URL paths and locations. Each location needs a non-negative integer code. Location codes must be unique; multiple locations need titles with unique URL slugs. Thing must end in {id} and search in {query}.', 'myturn')
+                __('Check the tenant subdomain, URL paths and locations. Each location needs a non-negative integer code. Location codes must be unique; multiple locations need titles with unique URL slugs. Thing must end in {id}. Searches use the catalogue path and need a single search URL segment without slashes.', 'myturn')
             );
 
             return $settings;
@@ -340,8 +335,8 @@ JS, [
         return [
             'tenant_subdomain' => $tenant,
             'catalogue_route' => $catalogueRoute,
+            'search_segment' => $searchSegment,
             'thing_route' => $thingRoute,
-            'search_route' => $searchRoute,
             'locations' => $locations,
         ];
     }
@@ -350,8 +345,9 @@ JS, [
     {
         if (($oldSettings['locations'] ?? []) !== ($newSettings['locations'] ?? [])
             || ($oldSettings['catalogue_route'] ?? null) !== ($newSettings['catalogue_route'] ?? null)
+            || ($oldSettings['search_segment'] ?? 'search') !== ($newSettings['search_segment'] ?? 'search')
             || ($oldSettings['thing_route'] ?? null) !== ($newSettings['thing_route'] ?? null)
-            || ($oldSettings['search_route'] ?? null) !== ($newSettings['search_route'] ?? null)) {
+            || array_key_exists('search_route', $oldSettings) !== array_key_exists('search_route', $newSettings)) {
             update_option(self::REWRITE_FLUSH_OPTION, 1, false);
         }
     }
@@ -525,9 +521,7 @@ JS, [
 
         if (get_query_var('myturn_search') !== '') {
             $searchQuery = (string) get_query_var('myturn_search');
-            $canonicalPath = get_query_var('myturn_catalogue_search')
-                ? $this->cataloguePath($this->currentLocation()) . '/search/' . rawurlencode($searchQuery)
-                : str_replace('{query}', rawurlencode($searchQuery), $settings['search_route']);
+            $canonicalPath = $this->searchPath($this->currentLocation()) . '/' . rawurlencode($searchQuery);
 
             $page = (new BuildSearchPage($client, $myTurnBaseUrl, $siteBaseUrl))
                 ->execute($searchQuery, user_trailingslashit($canonicalPath));
@@ -554,6 +548,11 @@ JS, [
         $location = $this->currentLocation()['code'] ?? '';
 
         return $location === '' ? $url : add_query_arg('location', $location, $url);
+    }
+
+    private function searchPath(?array $location): string
+    {
+        return $this->cataloguePath($location) . '/' . $this->settings()['search_segment'];
     }
 
     private function cataloguePath(?array $location): string
@@ -638,7 +637,7 @@ JS, [
             <?php endforeach; ?>
         </div>
         <button type="button" class="button" id="myturn-add-location"><?php echo esc_html__('Add location', 'myturn'); ?></button>
-        <p class="description"><?php echo esc_html__('Each location needs an integer code. Titles form URL slugs under the catalogue path, with searches at /search/{term}. A single location may have no title to use the catalogue path directly. With multiple locations, titles and codes must be unique. Remove all locations for an unfiltered catalogue.', 'myturn'); ?></p>
+        <p class="description"><?php echo esc_html__('Each location needs an integer code. Titles form URL slugs under the catalogue path, with searches under the configured search URL segment. A single location may have no title to use the catalogue path directly. With multiple locations, titles and codes must be unique. Remove all locations for an unfiltered catalogue.', 'myturn'); ?></p>
         <script>
         (() => {
             const container = document.getElementById('myturn-locations');

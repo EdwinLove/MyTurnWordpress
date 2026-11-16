@@ -52,8 +52,10 @@ const target = 'https://example.org/wordpress/';
     }
     assert.deepEqual(await run(fixtures.single.search, source + '?q=drill'), [['copy', target + 'borrow/things/search/drill/']]);
     assert.deepEqual(await run(fixtures.legacy.search, source + '?q=drill'), [['copy', target + 'borrow/things/search/drill/']]);
-    assert.deepEqual(await run(fixtures.none.search, source + '?q=caf%C3%A9+%2F+tools'), [['copy', target + 'find/caf%C3%A9%20%2F%20tools/']]);
+    assert.deepEqual(await run(fixtures.none.search, source + '?q=caf%C3%A9+%2F+tools'), [['copy', target + 'borrow/things/search/caf%C3%A9%20%2F%20tools/']]);
     assert.equal(fixtures.disabled.search, null);
+    assert.deepEqual(await run(fixtures.custom.search, source + '?q=drill'), [['copy', target + 'borrow/things/north/find/drill/']]);
+    assert.deepEqual(await run(fixtures.customNone.search, source + '?q=drill'), [['copy', target + 'borrow/things/find/drill/']]);
     for (const clipboard of ['missing', 'denied']) {
         assert.deepEqual(await run(fixtures.multiple.search, source + '?q=drill&location=7', { clipboard }), [['manual', target + 'borrow/things/north-branch/search/drill/']]);
     }
