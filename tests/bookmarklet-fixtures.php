@@ -11,6 +11,10 @@ function user_trailingslashit($path) { return rtrim($path, '/') . ($GLOBALS['tra
 function sanitize_title($value) { return trim(preg_replace('/[^a-z0-9]+/', '-', strtolower($value)), '-'); }
 function wp_json_encode($value, $flags = 0) { return json_encode($value, $flags | JSON_THROW_ON_ERROR); }
 function __($value, $domain) { return $value; }
+function esc_attr($value) { return htmlspecialchars($value, ENT_QUOTES); }
+function esc_html($value) { return htmlspecialchars($value, ENT_QUOTES); }
+function esc_textarea($value) { return htmlspecialchars($value, ENT_QUOTES); }
+function esc_html__($value, $domain) { return esc_html($value); }
 
 $plugin = new EdwinLove\MyTurn\WordPress\Plugin();
 $base = ['thing_route' => 'items/{id}', 'search_route' => 'find/{query}', 'catalogue_route' => 'borrow/things'];
@@ -32,4 +36,8 @@ foreach ($scenarios as $name => $settings) {
 $GLOBALS['settings'] = $scenarios['multiple'] + $base;
 $GLOBALS['trailingSlash'] = false;
 $fixtures['noSlash']['search'] = (new ReflectionMethod($plugin, 'searchLinkBookmarklet'))->invoke($plugin);
+$GLOBALS['trailingSlash'] = true;
+ob_start();
+(new ReflectionMethod($plugin, 'renderBookmarklets'))->invoke($plugin);
+$fixtures['settingsHtml'] = ob_get_clean();
 echo json_encode($fixtures, JSON_THROW_ON_ERROR);

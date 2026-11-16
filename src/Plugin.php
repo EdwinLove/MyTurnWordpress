@@ -168,22 +168,54 @@ final class Plugin
         ];
         ?>
         <h2><?php echo esc_html__('MyTurn link bookmarks', 'myturn'); ?></h2>
-        <p><?php echo esc_html__('Save your settings first, then drag these links to your browser bookmarks bar. Use them on a thing or search page in MyTurn to copy the corresponding WordPress link.', 'myturn'); ?></p>
+        <p><?php echo esc_html__('Save your settings first. Copy a bookmarklet into a new browser bookmark, or drag its link to your bookmarks bar. Then use the saved bookmark on a thing or search page in MyTurn to copy the corresponding WordPress link.', 'myturn'); ?></p>
         <p><?php echo esc_html__('The search bookmark uses the location in the MyTurn URL. With multiple configured locations, it asks you to choose one if no matching location is present. A single configured location is selected automatically.', 'myturn'); ?></p>
         <?php foreach ($bookmarklets as $type => [$label, $bookmarklet]): ?>
             <?php if ($bookmarklet === null): ?>
                 <p><?php echo esc_html__('Enable the Catalogue URL path to generate search bookmarks for configured locations.', 'myturn'); ?></p>
                 <?php continue; ?>
             <?php endif; ?>
-            <p><a class="button" href="<?php
+            <p>
+                <button type="button" class="button myturn-copy-bookmarklet" data-bookmarklet="<?php echo esc_attr($type); ?>"><?php echo esc_html($type === 'thing' ? __('Copy thing bookmarklet', 'myturn') : __('Copy search bookmarklet', 'myturn')); ?></button>
+                <a class="myturn-drag-bookmarklet" data-bookmarklet="<?php echo esc_attr($type); ?>" href="<?php
                 // Generated bookmarklet JavaScript must retain its javascript: scheme.
                 // esc_url() removes that scheme; escape the attribute instead.
                 echo esc_attr($bookmarklet);
-            ?>"><?php echo esc_html($label); ?></a></p>
+            ?>"><?php echo esc_html(sprintf(__('Drag to bookmarks bar: %s', 'myturn'), $label)); ?></a>
+                <span id="myturn-<?php echo esc_attr($type); ?>-bookmarklet-status" role="status" aria-live="polite"></span>
+            </p>
             <p><label for="myturn-<?php echo esc_attr($type); ?>-bookmarklet"><?php echo esc_html(sprintf(__('Alternatively, paste this URL into a bookmark named “%s”:', 'myturn'), $label)); ?></label></p>
             <textarea id="myturn-<?php echo esc_attr($type); ?>-bookmarklet" class="large-text code" rows="3" readonly><?php echo esc_textarea($bookmarklet); ?></textarea>
         <?php endforeach; ?>
-        <p class="description"><?php echo esc_html__('If clipboard access fails, a prompt offers the link for manual copying. Replace saved bookmarks after changing the site URL, routes or locations.', 'myturn'); ?></p>
+        <p class="description"><?php echo esc_html__('If copying the bookmarklet fails, its URL is selected below for manual copying. When using the saved bookmark in MyTurn, a prompt offers the WordPress link if clipboard access fails. Replace saved bookmarks after changing the site URL, routes or locations.', 'myturn'); ?></p>
+        <script>
+        (() => {
+            const copied = <?php echo wp_json_encode(__('Bookmarklet copied. Paste it into a browser bookmark URL.', 'myturn')); ?>;
+            const manual = <?php echo wp_json_encode(__('Copy the selected URL manually and paste it into a browser bookmark URL.', 'myturn')); ?>;
+            const drag = <?php echo wp_json_encode(__('Drag this link to your bookmarks bar, or use the copy button.', 'myturn')); ?>;
+            document.querySelectorAll('.myturn-copy-bookmarklet').forEach(button => {
+                button.addEventListener('click', async () => {
+                    const type = button.dataset.bookmarklet;
+                    const field = document.getElementById('myturn-' + type + '-bookmarklet');
+                    const status = document.getElementById('myturn-' + type + '-bookmarklet-status');
+                    try {
+                        await navigator.clipboard.writeText(field.value);
+                        status.textContent = copied;
+                    } catch (error) {
+                        field.focus();
+                        field.select();
+                        status.textContent = manual;
+                    }
+                });
+            });
+            document.querySelectorAll('.myturn-drag-bookmarklet').forEach(link => {
+                link.addEventListener('click', event => {
+                    event.preventDefault();
+                    document.getElementById('myturn-' + link.dataset.bookmarklet + '-bookmarklet-status').textContent = drag;
+                });
+            });
+        })();
+        </script>
         <?php
     }
 
