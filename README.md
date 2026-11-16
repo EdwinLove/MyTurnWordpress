@@ -51,3 +51,9 @@ Run `node tests/bookmarklets.cjs` to check generated bookmark behavior and `node
 The plugin and core source require PHP 8.3 or newer. When changing this minimum, update both packages' Composer requirements and this plugin's `Requires PHP` header, then refresh their lockfiles and rebuild dependencies with Composer.
 
 The current plugin lockfile still pins core v1.0.1, whose published metadata requires PHP 8.4. Before distributing a PHP 8.3-compatible ZIP, release the updated core under a new version, run `composer update edwinlove/myturn-core --with-dependencies` here, and rebuild using `bin/build-zip.sh`. Do not edit the locked core's PHP requirement or generated `vendor/composer/platform_check.php` by hand: they must describe the actual published dependency. Check the finished build on PHP 8.3 before release.
+
+## Building a plugin ZIP
+
+Run `bin/build-zip.sh` (or `bin/build-zip.sh path/to/output.zip`). The script prompts for a version and suggests the next patch release: press Enter to accept, or enter any `major.minor.patch` version to roll back or make a minor/major release. For example, a current version of `0.0.2` suggests `0.0.3`, but you can enter `0.0.1` or `1.0.0`.
+
+The ZIP contains the selected version. After a successful build, the script also updates the `Version` header in `myturn.php` so the next build suggests an increment from that version. Cancelled or failed builds leave the source version unchanged.
